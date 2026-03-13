@@ -1,167 +1,155 @@
 # GRE Adaptive Diagnostic Engine
 
-> Intern Assignment — AI-Driven Adaptive Testing Prototype  
-> Stack: Python · FastAPI · MongoDB Atlas · Anthropic Claude · Vanilla JS
+Built this as part of the intern assignment. The idea is a 10-question GRE quiz that gets harder or easier based on how you're doing — not randomly, but using actual Item Response Theory math. After you finish, Claude generates a personalised study plan based on your weak spots.
+
+Stack: Python, FastAPI, MongoDB Atlas, Anthropic Claude API, plain HTML/JS frontend.
 
 ---
 
-## Project Structure
+## What it does
+
+You enter a student ID, answer 10 GRE questions, and the system tracks your ability score (θ) after every answer. Get one right and the next question is harder. Get one wrong and it pulls back to something easier. At the end you see your score breakdown by topic and can generate an AI study plan.
+
+The three phases from the assignment:
+- **Phase 1** — MongoDB data model with 20 GRE questions (Algebra, Vocabulary, Geometry, Reading Comprehension etc.), each with difficulty and discrimination parameters
+- **Phase 2** — Adaptive question selection using IRT 2PL + Newton-Raphson MLE to estimate ability
+- **Phase 3** — Claude generates a 3-step study plan based on your actual performance data
+
+---
+
+## Project structure
 
 ```
 gre_project/
 ├── backend/
-│   ├── main.py        # FastAPI app — all 7 API endpoints
-│   ├── database.py    # MongoDB Atlas singleton (questions + userSessions)
-│   ├── models.py      # Pydantic v2 request/response schemas
-│   ├── adaptive.py    # IRT 2PL engine + Newton-Raphson MLE + session logic
-│   ├── llm.py         # Anthropic Claude integration (Phase 3 study plan)
-│   └── seed.py        # Seeds 20 GRE questions + creates indexes
+│   ├── main.py        # FastAPI — 7 API endpoints
+│   ├── database.py    # MongoDB Atlas connection
+│   ├── models.py      # Pydantic schemas
+│   ├── adaptive.py    # IRT 2PL algorithm + ability estimation
+│   ├── llm.py         # Claude API integration
+│   └── seed.py        # Seeds 20 questions into MongoDB
 ├── frontend/
-│   └── index.html     # Single-page UI (served by FastAPI at GET /)
+│   └── index.html     # Single page UI served by FastAPI
 ├── requirements.txt
 ├── .env.example
-├── .gitignore
 └── README.md
 ```
 
 ---
 
-## How to Run
+## How to run it
 
-### 1. Clone & install
+You need Python 3.10+, a MongoDB Atlas account (free tier works), and an Anthropic API key.
 
+**1. Clone and install dependencies**
 ```bash
-git clone <your-repo-url>
+git clone https://github.com/sukie512/gre_project
 cd gre_project
 pip install -r requirements.txt
 ```
 
-### 2. Configure environment
+**2. Set up your .env file**
 
-```bash
-cp .env.example .env
-# Edit .env and fill in:
-#   MONGO_URI=mongodb+srv://<user>:<pass>@<cluster>.mongodb.net/...
-#   ANTHROPIC_API_KEY=sk-ant-api03-...
+Copy `.env.example` to `.env` and fill in your credentials:
+```
+MONGO_URI=mongodb+srv://username:password@cluster.mongodb.net/?retryWrites=true&w=majority
+ANTHROPIC_API_KEY=sk-ant-api03-...
 ```
 
-### 3. Seed the database (run once)
+To get your MongoDB URI: go to cloud.mongodb.com → your cluster → Connect → Drivers → copy the string and replace `<password>` with your actual password.
 
+To get your Anthropic key: go to console.anthropic.com → API Keys → Create Key.
+
+**3. Seed the database (only needed once)**
 ```bash
-python backend/seed.py
+py -m backend.seed
 ```
 
-This drops + recreates the `questions` and `userSessions` collections,
-inserts 20 GRE questions, and creates indexes.
+This creates the `questions` and `userSessions` collections and loads 20 GRE questions with proper indexes.
 
-### 4. Start the server
-
+**4. Start the server**
 ```bash
 uvicorn backend.main:app --reload
 ```
 
-### 5. Open the app
-
-- **Frontend UI** → http://localhost:8000  
-- **Swagger API docs** → http://localhost:8000/docs  
-
----
-
-## API Endpoints
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/health` | Atlas ping + question count |
-| POST | `/session/start` | Create or resume a user session |
-| GET | `/session/{user_id}` | Session status, topic stats, ability history |
-| DELETE | `/session/{user_id}` | Reset / delete session |
-| GET | `/next-question/{user_id}` | Next adaptive question (IRT selection) |
-| POST | `/submit-answer` | Submit answer → score + update θ |
-| POST | `/study-plan/{user_id}` | Generate AI study plan via Claude |
+**5. Open in browser**
+- UI → http://localhost:8000
+- API docs → http://localhost:8000/docs
 
 ---
 
-## Adaptive Algorithm (Phase 2)
+## API endpoints
 
-### IRT 2-Parameter Logistic Model
+| Method | Endpoint | What it does |
+|--------|----------|--------------|
+| GET | `/health` | Check if server + DB are connected |
+| POST | `/session/start` | Start or resume a session for a student |
+| GET | `/session/{user_id}` | Get full session data, scores, topic breakdown |
+| DELETE | `/session/{user_id}` | Reset a session |
+| GET | `/next-question/{user_id}` | Get next question based on current ability |
+| POST | `/submit-answer` | Submit answer, get feedback + updated θ |
+| POST | `/study-plan/{user_id}` | Generate Claude study plan |
+
+---
+
+## How the adaptive algorithm works (Phase 2)
+
+The core formula is the IRT 2-Parameter Logistic model:
 
 ```
 P(correct | θ, a, b) = 1 / (1 + exp(−a × (θ − b)))
 ```
 
-| Symbol | Meaning | Range |
-|--------|---------|-------|
-| θ (theta) | Student ability estimate | 0.05 – 0.95 |
-| a | Discrimination (question sensitivity) | 1.0 – 1.2 |
-| b | Difficulty | 0.20 – 0.65 |
+Where θ is the student's estimated ability (starts at 0.5), b is question difficulty (0.20–0.65), and a is discrimination (how sensitive the question is to ability differences).
 
-### Ability Update — Newton-Raphson MLE
-
-After each answer, θ is updated by maximising the log-likelihood over the
-**full response history**:
+After each answer, θ gets updated using Newton-Raphson MLE — basically it looks at your full answer history and finds the ability value that best explains everything you've answered so far:
 
 ```
-θ_new = θ − lr × (dLogL/dθ) / (d²LogL/dθ²)
+θ_new = θ − lr × (first derivative of log-likelihood) / (second derivative)
 ```
 
-- `lr = 0.3`, `max_iter = 10`
-- θ is clamped to `[0.05, 0.95]`
-- **Correct answer** → next question will be harder (higher b)
-- **Incorrect answer** → next question will be easier (lower b)
+Learning rate is 0.3, clamped to [0.05, 0.95] so it never goes to extremes.
 
-### Question Selection
-
-The unseen question with `|difficulty − θ|` minimised is selected next.
-This is equivalent to the maximum Fisher-information criterion — the most
-informative question given the current ability estimate.
+For question selection, the system picks the unseen question where `|difficulty − θ|` is smallest — meaning it always gives you the most informative question for your current level.
 
 ---
 
-## AI Study Plan (Phase 3)
+## How the AI study plan works (Phase 3)
 
-After 10 questions, the student's full performance data (topics missed,
-accuracy per topic, θ progression, score) is sent to **Claude claude-opus-4-6**.
+After 10 questions, your full performance data gets sent to Claude — your θ progression, score per topic, which topics you struggled with, how your ability changed over time. Claude returns a structured JSON response with a summary, 3 specific study steps, and a list of weak topics to focus on.
 
-The prompt asks Claude to return structured JSON:
-
-```json
-{
-  "summary": "one-sentence overview",
-  "steps":   ["Step 1: ...", "Step 2: ...", "Step 3: ..."],
-  "weak_topics": ["Vocabulary", "Algebra"]
-}
-```
-
-The plan adapts to ability level:
-- θ > 0.70 → advanced GRE strategy (timing, hard question types)
-- θ < 0.40 → foundational resources and concept review
+The prompt changes based on your ability level:
+- If θ > 0.70, the plan focuses on advanced strategy and hard question types
+- If θ < 0.40, it focuses on foundational concepts and basic review
 
 ---
 
-## AI Log
+## AI log
 
-**Tools used:** Claude (Anthropic) via claude.ai
+I used Claude (claude.ai) throughout this project. Here's an honest breakdown of where it helped and where it didn't:
 
-**What AI accelerated:**
-- Initial project scaffolding and file structure
-- IRT 2PL formula implementation and Newton-Raphson derivation check
-- MongoDB aggregation pipeline for question selection
-- Pydantic schema design
-- Frontend JS state management
+**Where AI actually saved time:**
+- Writing the IRT 2PL formula and Newton-Raphson implementation — I understood the math conceptually but implementing it cleanly in Python would have taken much longer
+- Setting up the FastAPI boilerplate and Pydantic schemas
+- Writing the 20 GRE questions with realistic difficulty values and explanations
+- Frontend JavaScript state management — the session flow logic
+- Structuring the Claude prompt to return consistent JSON
 
-**Challenges AI couldn't solve:**
-- PDF text extraction (custom glyph encoding required manual CMap decoding)
-- MongoDB Atlas connection string debugging (environment-specific)
-- CORS configuration for `file://` vs `http://` origins
-- Exact Pydantic v2 vs v1 API differences required manual testing
+**Where I had to figure things out myself:**
+- MongoDB Atlas connection kept failing because of IP whitelist settings — AI kept giving generic advice, had to find the Network Access setting myself
+- Python 3.14 compatibility broke pydantic-core during install — had to manually figure out to install without pinned versions
+- Import paths kept breaking when running uvicorn from different directories — took a while to figure out the `backend.module` vs `module` issue
+- The frontend submit button wasn't working because choices with apostrophes were breaking the `onclick` attribute string — had to debug that in browser console
+
+Overall the project took longer than expected mostly because of environment setup issues, not the actual coding. The algorithm and API parts came together pretty cleanly once everything was running.
 
 ---
 
-## Evaluation Criteria Coverage
+## Evaluation criteria
 
-| Criteria | Implementation |
-|----------|---------------|
-| System Design | Clean collection schema with indexes; UserSession tracks full history |
-| Algorithmic Logic | Mathematically sound IRT 2PL + Newton-Raphson MLE (not random jumps) |
-| AI Proficiency | Structured JSON prompt with performance context; handles θ-adaptive plan |
-| Code Hygiene | `.env` for secrets; Pydantic typing; modular separation; error handling |
+| What was asked | What I built |
+|----------------|--------------|
+| MongoDB data model | Two collections — `questions` (20 GRE questions with IRT params) and `userSessions` (full history per student). Indexes on topic+difficulty and userId. |
+| Adaptive algorithm | Proper IRT 2PL with Newton-Raphson MLE. Not just "go harder if correct" — it estimates actual ability from the full response history. |
+| AI integration | Claude gets your real performance data and returns a structured, personalised plan. Prompt adapts based on θ level. |
+| Code quality | Secrets in .env, Pydantic typing throughout, modular backend (database/models/adaptive/llm all separate), error handling on every endpoint. |
