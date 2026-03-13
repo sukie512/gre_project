@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GRE Adaptive Diagnostic Engine</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#f0f2f8;--white:#fff;--border:#e2e5ef;--border2:#cdd2e8;
+  --accent:#4338ca;--accent-lt:#eef2ff;--accent-dk:#3730a3;
+  --green:#15803d;--green-lt:#dcfce7;--green-border:#86efac;
+  --red:#b91c1c;--red-lt:#fee2e2;--red-border:#fca5a5;
+  --amber:#b45309;--amber-lt:#fef3c7;--amber-border:#fcd34d;
+  --text:#0f172a;--text2:#334155;--muted:#64748b;--muted2:#94a3b8;
+  --r:14px;--shadow:0 1px 3px rgba(0,0,0,.07),0 1px 2px rgba(0,0,0,.05);
+  --shadow-md:0 4px 20px rgba(0,0,0,.10);
+}
+body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;font-size:15px;line-height:1.6;min-height:100vh;}
+.page{max-width:720px;margin:0 auto;padding:40px 20px 80px;}
+.topbar{display:flex;align-items:center;justify-content:space-between;padding-bottom:28px;border-bottom:1px solid var(--border);margin-bottom:32px;}
+.tb-left{display:flex;align-items:center;gap:12px;}
+.tb-icon{width:40px;height:40px;border-radius:10px;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;}
+.tb-title{font-weight:700;font-size:15px;letter-spacing:-.3px;}
+.tb-sub{font-size:12px;color:var(--muted);}
+.tb-pill{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--accent);background:var(--accent-lt);padding:4px 12px;border-radius:99px;border:1px solid #c7d2fe;}
+.card{background:var(--white);border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--shadow);padding:28px 32px;margin-bottom:16px;animation:fadein .3s ease both;}
+@keyframes fadein{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+.card-title{font-size:11px;font-weight:600;letter-spacing:1.2px;text-transform:uppercase;color:var(--muted);margin-bottom:18px;}
+.error-banner{background:var(--red-lt);border:1px solid var(--red-border);border-radius:10px;padding:14px 18px;color:var(--red);font-size:13px;line-height:1.6;margin-bottom:16px;display:none;}
+.error-banner.show{display:block;}
+.hud{background:var(--white);border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--shadow);padding:16px 24px;margin-bottom:16px;display:grid;grid-template-columns:1fr 1fr;gap:18px;}
+.hud-label{font-size:11px;font-weight:600;letter-spacing:.8px;text-transform:uppercase;color:var(--muted);margin-bottom:7px;}
+.hud-track{height:7px;background:var(--bg);border-radius:99px;overflow:hidden;border:1px solid var(--border);margin-bottom:5px;}
+.hud-fill{height:100%;border-radius:99px;transition:width .7s cubic-bezier(.4,0,.2,1);}
+.hud-fill.prog{background:var(--accent);}
+.hud-fill.theta{background:linear-gradient(90deg,#4338ca,#7c3aed);}
+.hud-meta{display:flex;justify-content:space-between;font-size:12px;color:var(--muted);font-family:'JetBrains Mono',monospace;}
+.hud-meta span:last-child{color:var(--text);font-weight:500;}
+.tags{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:18px;}
+.tag{font-size:11px;font-weight:500;padding:3px 11px;border-radius:99px;}
+.tag-round{background:var(--amber-lt);color:var(--amber);border:1px solid var(--amber-border);}
+.tag-topic{background:var(--accent-lt);color:var(--accent);border:1px solid #c7d2fe;}
+.tag-diff{background:var(--bg);color:var(--muted);border:1px solid var(--border2);font-family:'JetBrains Mono',monospace;}
+.q-text{font-size:17px;font-weight:600;line-height:1.65;color:var(--text);margin-bottom:22px;letter-spacing:-.2px;}
+.choices{display:flex;flex-direction:column;gap:10px;margin-bottom:20px;}
+.choice{display:flex;align-items:flex-start;gap:13px;padding:13px 16px;border-radius:11px;border:1.5px solid var(--border);background:var(--white);cursor:pointer;font-size:14px;color:var(--text2);text-align:left;font-family:'Inter',sans-serif;transition:border-color .15s,background .15s;width:100%;}
+.choice:hover:not(:disabled){border-color:var(--accent);background:#f8f9ff;}
+.choice.selected{border-color:var(--accent);background:var(--accent-lt);}
+.choice.correct{border-color:var(--green)!important;background:var(--green-lt)!important;}
+.choice.wrong{border-color:var(--red)!important;background:var(--red-lt)!important;}
+.choice:disabled{cursor:default;}
+.choice-key{width:26px;height:26px;flex-shrink:0;border-radius:6px;background:var(--bg);border:1px solid var(--border2);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:var(--muted);font-family:'JetBrains Mono',monospace;transition:all .15s;}
+.choice.selected .choice-key{background:var(--accent);color:#fff;border-color:var(--accent);}
+.choice.correct .choice-key{background:var(--green);color:#fff;border-color:var(--green);}
+.choice.wrong .choice-key{background:var(--red);color:#fff;border-color:var(--red);}
+.feedback{border-radius:10px;padding:14px 17px;font-size:14px;line-height:1.65;display:none;margin-bottom:16px;}
+.feedback.show{display:block;}
+.feedback.ok{background:var(--green-lt);border:1px solid var(--green-border);color:#14532d;}
+.feedback.bad{background:var(--red-lt);border:1px solid var(--red-border);color:#7f1d1d;}
+.feedback strong{display:block;margin-bottom:4px;}
+.btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:13px 20px;border-radius:10px;font-size:14px;font-weight:500;font-family:'Inter',sans-serif;cursor:pointer;border:none;transition:opacity .15s,transform .1s;}
+.btn:active:not(:disabled){transform:scale(.98);}
+.btn:disabled{opacity:.4;cursor:not-allowed;}
+.btn-primary{background:var(--accent);color:#fff;}
+.btn-primary:hover:not(:disabled){background:var(--accent-dk);}
+.btn-outline{background:var(--white);color:var(--text2);border:1.5px solid var(--border2);}
+.btn-outline:hover:not(:disabled){border-color:var(--accent);color:var(--accent);}
+.btn-green{background:var(--green);color:#fff;}
+.btn-green:hover:not(:disabled){opacity:.9;}
+.btn-row{display:flex;gap:10px;}
+.btn-row .btn{flex:1;}
+.mt12{margin-top:12px;}
+.spin{width:16px;height:16px;border-radius:50%;border:2px solid rgba(255,255,255,.3);border-top-color:#fff;animation:rot .6s linear infinite;display:inline-block;}
+@keyframes rot{to{transform:rotate(360deg)}}
+.start-hero{text-align:center;padding:4px 0 22px;}
+.start-hero h2{font-size:24px;font-weight:700;letter-spacing:-.4px;margin-bottom:8px;}
+.start-hero p{font-size:14px;color:var(--muted);max-width:400px;margin:0 auto 22px;}
+.phase-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:11px;margin-bottom:26px;}
+.phase-box{background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:14px;text-align:left;}
+.phase-num{font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--accent);margin-bottom:5px;}
+.phase-name{font-size:12px;font-weight:600;color:var(--text);margin-bottom:3px;}
+.phase-desc{font-size:11px;color:var(--muted);line-height:1.5;}
+.field{margin-bottom:14px;}
+.field label{display:block;font-size:12px;font-weight:500;color:var(--text2);margin-bottom:6px;}
+.field input{width:100%;padding:10px 14px;border:1.5px solid var(--border2);border-radius:9px;font-size:14px;font-family:'Inter',sans-serif;color:var(--text);background:var(--white);outline:none;transition:border-color .15s;}
+.field input:focus{border-color:var(--accent);}
+.field .hint{font-size:11px;color:var(--muted2);margin-top:5px;}
+.score-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:24px;}
+.score-box{background:var(--bg);border:1px solid var(--border);border-radius:11px;padding:18px 12px;text-align:center;}
+.score-big{font-family:'JetBrains Mono',monospace;font-size:26px;font-weight:700;color:var(--accent);}
+.score-lbl{font-size:11px;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);margin-top:5px;}
+.topic-table{width:100%;border-collapse:collapse;}
+.topic-table th{text-align:left;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);padding:0 0 10px;border-bottom:1px solid var(--border);}
+.topic-table td{padding:10px 0;border-bottom:1px solid var(--border);vertical-align:middle;font-size:14px;}
+.topic-table tr:last-child td{border-bottom:none;}
+.topic-table td:nth-child(2){width:130px;padding:10px 16px;}
+.topic-table td:last-child{width:50px;text-align:right;font-family:'JetBrains Mono',monospace;font-size:12px;}
+.t-bar{height:5px;background:var(--border);border-radius:99px;overflow:hidden;}
+.t-fill{height:100%;border-radius:99px;background:var(--accent);}
+.pct-good{color:var(--green)!important;} .pct-ok{color:var(--amber)!important;} .pct-bad{color:var(--red)!important;}
+.theta-chart{padding:2px 0 4px;}
+.tc-row{display:flex;align-items:center;gap:10px;margin-bottom:6px;}
+.tc-lbl{width:38px;text-align:right;font-size:11px;color:var(--muted);font-family:'JetBrains Mono',monospace;}
+.tc-wrap{flex:1;height:16px;background:var(--bg);border-radius:4px;overflow:hidden;border:1px solid var(--border);}
+.tc-bar{height:100%;border-radius:4px;min-width:2px;transition:width .4s ease;}
+.tc-correct{background:#4338ca;} .tc-wrong{background:#fca5a5;} .tc-start{background:#c7d2fe;}
+.tc-val{width:42px;font-size:11px;font-family:'JetBrains Mono',monospace;color:var(--text2);}
+.plan-summary{font-size:15px;color:var(--text2);line-height:1.7;padding:14px 17px;background:var(--accent-lt);border:1px solid #c7d2fe;border-radius:10px;margin-bottom:20px;font-style:italic;}
+.plan-step{display:flex;gap:14px;padding:14px 0;border-bottom:1px solid var(--border);}
+.plan-step:last-child{border-bottom:none;}
+.step-num{width:28px;height:28px;flex-shrink:0;background:var(--accent);color:#fff;border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;}
+.step-body{font-size:14px;line-height:1.65;color:var(--text2);padding-top:3px;}
+.weak-chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px;}
+.weak-chip{font-size:12px;padding:4px 12px;border-radius:99px;background:var(--red-lt);border:1px solid var(--red-border);color:var(--red);font-weight:500;}
+.hidden{display:none!important;}
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="topbar">
+    <div class="tb-left">
+      <div class="tb-icon">📐</div>
+      <div>
+        <div class="tb-title">GRE Adaptive Diagnostic Engine</div>
+        <div class="tb-sub">FastAPI · MongoDB · IRT 2PL · Claude AI</div>
+      </div>
+    </div>
+    <div class="tb-pill">Phase 1 · 2 · 3</div>
+  </div>
+
+  <div id="err-banner" class="error-banner"></div>
+
+  <div id="screen-start">
+    <div class="card">
+      <div class="start-hero">
+        <h2>GRE Proficiency Diagnostic</h2>
+        <p>10 adaptive questions. Difficulty adjusts every round using Item Response Theory.</p>
+        <div class="phase-grid">
+          <div class="phase-box">
+            <div class="phase-num">Phase 1</div>
+            <div class="phase-name">Data Model</div>
+            <div class="phase-desc">20 GRE questions in MongoDB with difficulty, topic &amp; tags.</div>
+          </div>
+          <div class="phase-box">
+            <div class="phase-num">Phase 2</div>
+            <div class="phase-name">Adaptive IRT</div>
+            <div class="phase-desc">IRT 2PL · Newton-Raphson MLE · θ starts at 0.5.</div>
+          </div>
+          <div class="phase-box">
+            <div class="phase-num">Phase 3</div>
+            <div class="phase-name">AI Study Plan</div>
+            <div class="phase-desc">Claude generates a personalised 3-step plan from your results.</div>
+          </div>
+        </div>
+      </div>
+      <div class="field">
+        <label>Student ID</label>
+        <input id="inp-uid" type="text" value="student_001" placeholder="e.g. student_001">
+      </div>
+      <button class="btn btn-primary" id="btn-start">
+        <span id="start-txt">Begin Diagnostic →</span>
+        <span id="start-spin" class="spin hidden"></span>
+      </button>
+    </div>
+  </div>
+
+  <div id="screen-quiz" class="hidden">
+    <div class="hud">
+      <div>
+        <div class="hud-label">Progress</div>
+        <div class="hud-track"><div class="hud-fill prog" id="h-prog" style="width:0%"></div></div>
+        <div class="hud-meta"><span>Questions</span><span id="h-prog-val">0 / 10</span></div>
+      </div>
+      <div>
+        <div class="hud-label">Ability Estimate (θ)</div>
+        <div class="hud-track"><div class="hud-fill theta" id="h-theta" style="width:50%"></div></div>
+        <div class="hud-meta"><span id="h-dir">—</span><span id="h-theta-val">θ = 0.500</span></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="tags">
+        <span class="tag tag-round" id="q-round">Round 1</span>
+        <span class="tag tag-topic" id="q-topic">—</span>
+        <span class="tag tag-diff"  id="q-diff">—</span>
+      </div>
+      <p class="q-text" id="q-text">Loading…</p>
+      <div class="choices" id="choices"></div>
+      <div class="feedback" id="feedback">
+        <strong id="fb-head"></strong>
+        <span id="fb-exp"></span>
+      </div>
+      <button class="btn btn-primary" id="btn-submit" disabled>Submit Answer</button>
+      <button class="btn btn-outline mt12 hidden" id="btn-next">Next Question →</button>
+    </div>
+  </div>
+
+  <div id="screen-results" class="hidden">
+    <div class="card">
+      <div class="card-title">Session Complete</div>
+      <div class="score-grid">
+        <div class="score-box"><div class="score-big" id="r-theta">—</div><div class="score-lbl">Final θ</div></div>
+        <div class="score-box"><div class="score-big" id="r-score">—</div><div class="score-lbl">Score</div></div>
+        <div class="score-box"><div class="score-big" id="r-pct">—</div><div class="score-lbl">Accuracy</div></div>
+      </div>
+      <div class="card-title">Topic Breakdown</div>
+      <table class="topic-table">
+        <thead><tr><th>Topic</th><th>Progress</th><th>Score</th></tr></thead>
+        <tbody id="topic-tbody"></tbody>
+      </table>
+    </div>
+    <div class="card">
+      <div class="card-title">θ Progression</div>
+      <div class="theta-chart" id="theta-chart"></div>
+    </div>
+    <div class="card" id="plan-card">
+      <div class="card-title">Phase 3 — AI Personalised Study Plan</div>
+      <div id="plan-area">
+        <p style="font-size:14px;color:var(--muted);margin-bottom:16px;">Claude will analyse your performance and create a tailored 3-step study plan.</p>
+        <button class="btn btn-green" id="btn-plan">
+          <span id="plan-txt">✨ Generate Study Plan with Claude</span>
+          <span id="plan-spin" class="spin hidden"></span>
+        </button>
+        <div id="plan-err" class="hidden" style="margin-top:12px;padding:12px;background:var(--red-lt);border:1px solid var(--red-border);border-radius:9px;font-size:13px;color:var(--red);line-height:1.6;"></div>
+      </div>
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-outline" id="btn-restart">↩ New Session</button>
+      <button class="btn btn-outline" id="btn-api">View API Docs →</button>
+    </div>
+  </div>
+
+</div>
+<script>
+const API = window.location.origin;
+const $ = id => document.getElementById(id);
+const show = id => $(id).classList.remove('hidden');
+const hide = id => $(id).classList.add('hidden');
+
+function showErr(msg) {
+  const b = $('err-banner');
+  b.textContent = '⚠ ' + msg;
+  b.classList.add('show');
+  setTimeout(() => b.classList.remove('show'), 7000);
+}
+
+async function api(method, path, body) {
+  const opts = { method, headers: { 'Content-Type': 'application/json' } };
+  if (body) opts.body = JSON.stringify(body);
+  const res = await fetch(API + path, opts);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: 'Unknown error' }));
+    throw new Error(err.detail || JSON.stringify(err));
+  }
+  return res.json();
+}
+
+let userId = '', currentQId = '', chosen = null;
+
+function setHUD(theta, done, dir) {
+  $('h-prog').style.width = (done / 10 * 100) + '%';
+  $('h-prog-val').textContent = done + ' / 10';
+  $('h-theta').style.width = (theta * 100) + '%';
+  $('h-theta-val').textContent = 'θ = ' + theta.toFixed(3);
+  const d = $('h-dir');
+  if (dir === 'harder')      d.innerHTML = '<span style="color:var(--green)">↑ next harder</span>';
+  else if (dir === 'easier') d.innerHTML = '<span style="color:var(--red)">↓ next easier</span>';
+  else                       d.textContent = dir || '—';
+}
+
+$('btn-start').onclick = async function () {
+  userId = $('inp-uid').value.trim() || 'student_001';
+  $('start-txt').textContent = 'Connecting…';
+  show('start-spin');
+  this.disabled = true;
+  try {
+    await api('POST', '/session/start', { user_id: userId });
+    hide('screen-start');
+    show('screen-quiz');
+    await loadQuestion();
+  } catch (e) {
+    showErr('Cannot connect: ' + e.message);
+    $('start-txt').textContent = 'Begin Diagnostic →';
+    hide('start-spin');
+    this.disabled = false;
+  }
+};
+
+async function loadQuestion() {
+  chosen = null;
+  currentQId = '';
+  $('btn-submit').disabled = true;
+  show('btn-submit');
+  hide('btn-next');
+  $('feedback').className = 'feedback';
+  $('q-text').textContent = 'Loading…';
+  $('choices').innerHTML = '';
+  try {
+    const q = await api('GET', '/next-question/' + userId);
+    currentQId = q.question_id;
+    $('q-round').textContent = 'Round ' + q.round_number;
+    $('q-topic').textContent = q.topic;
+    $('q-diff').textContent  = 'diff ' + q.difficulty.toFixed(2);
+    $('q-text').textContent  = q.text;
+    setHUD(q.current_theta, q.round_number - 1, null);
+    const keys = ['A','B','C','D','E'];
+    const choicesDiv = $('choices');
+    choicesDiv.innerHTML = '';
+    q.choices.forEach((c, i) => {
+      const btn = document.createElement('button');
+      btn.className = 'choice';
+      btn.innerHTML = '<span class="choice-key">' + keys[i] + '</span><span></span>';
+      btn.querySelector('span:last-child').textContent = c;
+      btn.addEventListener('click', () => pick(btn, c));
+      choicesDiv.appendChild(btn);
+    });
+  } catch (e) {
+    showErr('Failed to load question: ' + e.message);
+  }
+}
+
+function pick(el, val) {
+  document.querySelectorAll('.choice').forEach(c => c.classList.remove('selected'));
+  el.classList.add('selected');
+  chosen = val;
+  $('btn-submit').disabled = false;
+}
+
+$('btn-submit').onclick = async function () {
+  if (!chosen) return;
+  this.disabled = true;
+  try {
+    const res = await api('POST', '/submit-answer', {
+      user_id: userId, question_id: currentQId, chosen_answer: chosen,
+    });
+    setHUD(res.new_theta, res.questions_done, res.direction);
+    document.querySelectorAll('.choice').forEach(c => {
+      c.disabled = true;
+      const v = c.querySelector('span:last-child').textContent;
+      if (v === res.correct_answer)               c.classList.add('correct');
+      else if (v === chosen && !res.is_correct)   c.classList.add('wrong');
+    });
+    const fb = $('feedback');
+    fb.className = 'feedback show ' + (res.is_correct ? 'ok' : 'bad');
+    $('fb-head').textContent = res.is_correct
+      ? '✓ Correct — next question will be harder (↑)'
+      : '✗ Incorrect — correct answer: ' + res.correct_answer + ' (↓ next easier)';
+    $('fb-exp').textContent = res.explanation;
+    $('btn-next').textContent = res.is_complete ? 'View Results →' : 'Next Question →';
+    $('btn-next').onclick = res.is_complete ? showResults : loadQuestion;
+    hide('btn-submit');
+    show('btn-next');
+  } catch (e) {
+    showErr('Submit failed: ' + e.message);
+    this.disabled = false;
+  }
+};
+
+async function showResults() {
+  hide('screen-quiz');
+  show('screen-results');
+  try {
+    const s = await api('GET', '/session/' + userId);
+    const pct = s.total_correct && s.questions_done
+      ? Math.round(s.total_correct / s.questions_done * 100) : 0;
+    $('r-theta').textContent = s.current_ability.toFixed(3);
+    $('r-score').textContent = s.total_correct + '/' + s.questions_done;
+    $('r-pct').textContent   = pct + '%';
+    const tbody = $('topic-tbody');
+    tbody.innerHTML = '';
+    Object.entries(s.topic_stats || {}).forEach(([t, st]) => {
+      const p   = st.seen ? Math.round(st.correct / st.seen * 100) : 0;
+      const cls = p >= 70 ? 'pct-good' : p >= 50 ? 'pct-ok' : 'pct-bad';
+      tbody.innerHTML += '<tr><td>' + t + '</td><td><div class="t-bar"><div class="t-fill" style="width:' + p + '%"></div></div></td><td class="' + cls + '">' + st.correct + '/' + st.seen + '</td></tr>';
+    });
+    const chart = $('theta-chart');
+    chart.innerHTML = '';
+    (s.ability_history || []).forEach((h, i) => {
+      const lbl  = i === 0 ? 'Start' : 'Q' + h.step;
+      const pct2 = Math.round(h.ability * 100);
+      const cls  = h.correct === undefined ? 'tc-start' : h.correct ? 'tc-correct' : 'tc-wrong';
+      chart.innerHTML += '<div class="tc-row"><span class="tc-lbl">' + lbl + '</span><div class="tc-wrap"><div class="tc-bar ' + cls + '" style="width:' + pct2 + '%"></div></div><span class="tc-val">' + h.ability.toFixed(3) + '</span></div>';
+    });
+  } catch (e) {
+    showErr('Failed to load results: ' + e.message);
+  }
+}
+
+$('btn-plan').onclick = async function () {
+  $('plan-txt').textContent = 'Generating plan…';
+  show('plan-spin');
+  this.disabled = true;
+  hide('plan-err');
+  try {
+    const plan = await api('POST', '/study-plan/' + userId);
+    const steps = (plan.steps || []).slice(0, 3);
+    while (steps.length < 3) steps.push('Review all missed questions and reattempt similar ones.');
+    const weak = plan.weak_topics || [];
+    let html = '<div class="plan-summary">' + (plan.summary || '') + '</div><div>';
+    steps.forEach((s, i) => {
+      html += '<div class="plan-step"><div class="step-num">' + (i+1) + '</div><div class="step-body">' + s + '</div></div>';
+    });
+    html += '</div>';
+    if (weak.length) {
+      html += '<div class="weak-chips" style="margin-top:16px;"><div class="card-title" style="margin-bottom:8px;">Focus Areas</div>';
+      weak.forEach(t => { html += '<span class="weak-chip">' + t + '</span>'; });
+      html += '</div>';
+    }
+    $('plan-area').innerHTML = html;
+  } catch (e) {
+    $('plan-err').textContent = '⚠ ' + e.message;
+    show('plan-err');
+    $('plan-txt').textContent = '✨ Try Again';
+    this.disabled = false;
+  } finally {
+    hide('plan-spin');
+  }
+};
+
+$('btn-restart').onclick = async () => {
+  try { await api('DELETE', '/session/' + userId); } catch (_) {}
+  hide('screen-results');
+  show('screen-start');
+  $('start-txt').textContent = 'Begin Diagnostic →';
+  $('btn-start').disabled = false;
+};
+
+$('btn-api').onclick = () => window.open(API + '/docs', '_blank');
+</script>
+</body>
+</html>
